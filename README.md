@@ -2,7 +2,7 @@
 
 A full-stack Retrieval-Augmented Generation (RAG) system that answers questions about accessibility (WCAG) issues in a sample application, grounded in real issue data via vector search and an LLM.
 
-**Live demo:** http://51.170.136.226 *(learning-project deployment on a free-tier VM — may occasionally be offline)*
+**Live demo:** https://accessibility-rag.duckdns.org *(learning-project deployment on a free-tier VM — may occasionally be offline)*
 
 ## What this is
 
