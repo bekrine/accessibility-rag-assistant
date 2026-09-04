@@ -55,7 +55,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       RAG_SERVICE_URL: http://rag-service:8000
-      FRONTEND_ORIGIN: http://localhost
+      FRONTEND_ORIGIN: https://accessibility-rag.duckdns.org
 
     depends_on:
       postgres:
@@ -178,12 +178,29 @@ services:
 
     container_name: rag-frontend
 
-    ports:
-      - "80:80"
-
+    # No published port: only reachable from Caddy on the internal network.
     depends_on:
       api:
         condition: service_healthy
+
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: rag-caddy
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+
+    depends_on:
+      frontend:
+        condition: service_started
 
     restart: unless-stopped
 
@@ -191,3 +208,5 @@ volumes:
   postgres_data:
   chroma_data:
   hf_cache:
+  caddy_data:
+  caddy_config:
