@@ -1,0 +1,496 @@
+import os
+import re
+
+import chromadb
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+from huggingface_hub import InferenceClient
+from fastapi.middleware.cors import CORSMiddleware
+from rag_ingestion import refresh_knowledge_base
+
+# Load environment variables
+load_dotenv()
+
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -----------------------------
+# Embedding model
+# -----------------------------
+
+model = SentenceTransformer(
+    "all-MiniLM-L6-v2"
+)
+
+
+# -----------------------------
+# ChromaDB
+# -----------------------------
+
+client = chromadb.PersistentClient(
+    path="./chroma_db"
+)
+
+
+def get_collection():
+    return client.get_collection(
+        name="nexus_knowledge"
+    )
+
+# -----------------------------
+# Hugging Face
+# -----------------------------
+
+hf_client = InferenceClient(
+    api_key=os.getenv("HF_API_KEY")
+)
+
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
+
+
+def require_internal_key(x_internal_api_key: str = Header(default=None)):
+    if not INTERNAL_API_KEY or x_internal_api_key != INTERNAL_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid internal API key",
+        )
+
+
+# -----------------------------
+# Request models
+# -----------------------------
+
+class SearchRequest(BaseModel):
+    query: str
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+
+
+class Issue(BaseModel):
+    id: str
+    title: str
+    wcag: str
+    severity: str
+    status: str
+    page: str
+    url: str
+    description: str
+    remediation: str
+# -----------------------------
+# Health check
+# -----------------------------
+
+@app.get("/health")
+def health():
+
+    return {
+        "message": "RAG service is running"
+    }
+
+# -----------------------------
+# Sync knowledge base
+# -----------------------------
+
+@app.post("/sync", dependencies=[Depends(require_internal_key)])
+def sync():
+
+    result = refresh_knowledge_base()
+
+    return {
+        "message": "Knowledge base synchronized",
+        **result,
+    }
+
+# -----------------------------
+# Search
+# -----------------------------
+
+@app.post("/search")
+def search(request: SearchRequest):
+
+    query_embedding = model.encode(
+        request.query
+    ).tolist()
+
+    collection = get_collection()
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=3,
+    )
+
+    return {
+        "documents": results["documents"][0],
+        "metadatas": results["metadatas"][0],
+    }
+
+
+# -----------------------------
+# detect filters 
+# -----------------------------
+def detect_filters(message: str):
+
+    message_lower = message.lower()
+
+    conditions = []
+
+
+    # Severity
+
+    if "high severity" in message_lower:
+        conditions.append({
+            "severity": "High"
+        })
+
+    elif "medium severity" in message_lower:
+        conditions.append({
+            "severity": "Medium"
+        })
+
+    elif "low severity" in message_lower:
+        conditions.append({
+            "severity": "Low"
+        })
+
+
+    # Status
+
+    if "in progress" in message_lower:
+        conditions.append({
+            "status": "In Progress"
+        })
+
+    elif "resolved" in message_lower:
+        conditions.append({
+            "status": "Resolved"
+        })
+
+    elif "open" in message_lower:
+        conditions.append({
+            "status": "Open"
+        })
+
+
+    # Issue ID
+
+    issue_match = re.search(
+        r"PN-\d+",
+        message,
+        re.IGNORECASE
+    )
+
+    if issue_match:
+
+        conditions.append({
+            "issue_id": issue_match.group(0).upper()
+        })
+
+
+    if len(conditions) == 0:
+        return None
+
+
+    if len(conditions) == 1:
+        return conditions[0]
+
+
+    return {
+        "$and": conditions
+    }
+# -----------------------------
+# Chat
+# -----------------------------
+
+@app.post("/chat")
+def chat(request: ChatRequest):
+
+    # --------------------------------
+    # 1. Convert question to embedding
+    # --------------------------------
+
+    query_embedding = model.encode(
+        request.message
+    ).tolist()
+
+
+    # --------------------------------
+    # 2. Detect structured filters
+    # --------------------------------
+
+    where_filter = detect_filters(
+        request.message
+    )
+
+
+    # --------------------------------
+    # 3. Prepare ChromaDB query
+    # --------------------------------
+
+    query_options = {
+        "query_embeddings": [query_embedding],
+        "n_results": 5,
+    }
+
+
+    if where_filter:
+
+        query_options["where"] = where_filter
+
+
+    # --------------------------------
+    # 4. Search ChromaDB
+    # --------------------------------
+    collection = get_collection()
+    results = collection.query(
+        **query_options
+    )
+
+
+    # --------------------------------
+    # 5. Get retrieved data
+    # --------------------------------
+
+    documents = results["documents"][0]
+
+    metadatas = results["metadatas"][0]
+
+    distances = results["distances"][0]
+
+
+    # --------------------------------
+    # 6. Filter semantic results
+    # --------------------------------
+
+    if not where_filter:
+
+        filtered_results = [
+            (document, metadata, distance)
+
+            for document, metadata, distance in zip(
+                documents,
+                metadatas,
+                distances,
+            )
+
+            if distance <= 1.0
+        ]
+
+        documents = [
+            item[0]
+            for item in filtered_results
+        ]
+
+        metadatas = [
+            item[1]
+            for item in filtered_results
+        ]
+
+        distances = [
+            item[2]
+            for item in filtered_results
+        ]
+
+
+    # --------------------------------
+    # 7. No relevant information
+    # --------------------------------
+
+    if not documents:
+
+        return {
+            "answer": (
+                "I couldn't find sufficiently relevant "
+                "information in the knowledge base."
+            ),
+            "sources": [],
+        }
+
+
+    # --------------------------------
+    # 8. Build sources
+    # --------------------------------
+
+    sources = []
+
+    for metadata in metadatas:
+
+        sources.append({
+            "issue_id": metadata.get("issue_id"),
+            "title": metadata.get("title"),
+            "wcag": metadata.get("wcag"),
+            "severity": metadata.get("severity"),
+            "status": metadata.get("status"),
+            "page": metadata.get("page"),
+            "url": metadata.get("url"),
+        })
+
+
+    # --------------------------------
+    # 9. Combine documents into context
+    # --------------------------------
+
+    context = "\n\n".join(
+        documents
+    )
+
+
+    # --------------------------------
+    # 10. Convert conversation history
+    # --------------------------------
+
+    conversation = "\n".join(
+        f"{message.role}: {message.content}"
+        for message in request.history
+    )
+
+
+    # --------------------------------
+    # 11. Create LLM prompt
+    # --------------------------------
+
+    prompt = f"""
+You are an accessibility assistant.
+
+You are having a conversation with the user.
+
+Use the conversation history to understand
+references such as "it", "this issue", "that button",
+or "the previous problem".
+
+Use the retrieved knowledge base information
+to answer the user's question.
+
+CONVERSATION HISTORY:
+{conversation}
+
+RETRIEVED KNOWLEDGE:
+{context}
+
+CURRENT USER QUESTION:
+{request.message}
+
+IMPORTANT RULES:
+
+1. Use the retrieved knowledge when answering
+application-specific questions.
+
+2. Use conversation history to understand context.
+
+3. Do not invent application-specific information.
+
+4. If the answer is not available in the knowledge
+base, clearly say that the information is not
+available in the knowledge base.
+
+5. You may explain general accessibility concepts
+when useful, but do not present them as facts
+about the application unless they are present
+in the retrieved knowledge.
+"""
+
+
+    # --------------------------------
+    # 12. Ask Hugging Face
+    # --------------------------------
+
+    response = hf_client.chat.completions.create(
+
+        model="openai/gpt-oss-120b",
+
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+
+        max_tokens=500,
+    )
+
+
+    # --------------------------------
+    # 13. Get generated answer
+    # --------------------------------
+
+    answer = response.choices[0].message.content
+
+
+    # --------------------------------
+    # 14. Return answer + sources
+    # --------------------------------
+
+    return {
+        "answer": answer,
+        "sources": sources,
+    }
+    
+    
+
+@app.post("/sync/issue", dependencies=[Depends(require_internal_key)])
+async def sync_issue(issue: Issue):
+    try:
+        # Build the text that will be embedded
+        document = f"""
+        Issue ID: {issue.id}
+        Title: {issue.title}
+        WCAG: {issue.wcag}
+        Severity: {issue.severity}
+        Status: {issue.status}
+        Page: {issue.page}
+        URL: {issue.url}
+        Description: {issue.description}
+        Remediation: {issue.remediation}
+        """
+
+        # Generate embedding
+        embedding = model.encode(document).tolist()
+
+        # Get a fresh collection
+        collection = get_collection()
+
+        # Upsert the issue
+        collection.upsert(
+            ids=[issue.id],
+            documents=[document],
+            embeddings=[embedding],
+            metadatas=[{
+                "type": "issue",
+                "issue_id": issue.id,
+                "wcag": issue.wcag,
+                "severity": issue.severity,
+                "status": issue.status,
+                "page": issue.page,
+                "url": issue.url
+            }]
+        )
+
+        return {
+            "success": True,
+            "message": f"Issue {issue.id} synchronized successfully"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
