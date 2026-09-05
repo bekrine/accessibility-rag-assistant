@@ -7,13 +7,13 @@ function detectCountFilters(message) {
   const conditions = [];
   const params = [];
 
-  if (/\bhigh severity\b|\bhigh-severity\b/.test(lower)) {
+  if (/\bhigh\b/.test(lower)) {
     conditions.push(`severity = $${params.length + 1}`);
     params.push("High");
-  } else if (/\bmedium severity\b|\bmedium-severity\b/.test(lower)) {
+  } else if (/\bmedium\b/.test(lower)) {
     conditions.push(`severity = $${params.length + 1}`);
     params.push("Medium");
-  } else if (/\blow severity\b|\blow-severity\b/.test(lower)) {
+  } else if (/\blow\b/.test(lower)) {
     conditions.push(`severity = $${params.length + 1}`);
     params.push("Low");
   }

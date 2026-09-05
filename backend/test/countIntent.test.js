@@ -29,3 +29,15 @@ test("returns no filters for an unfiltered count question", () => {
   assert.deepEqual(conditions, []);
   assert.deepEqual(params, []);
 });
+
+test("extracts severity without the word 'severity' present", () => {
+  assert.deepEqual(detectCountFilters("how many medium issues are there?").params, [
+    "Medium",
+  ]);
+  assert.deepEqual(detectCountFilters("how many high issues do we have?").params, [
+    "High",
+  ]);
+  assert.deepEqual(detectCountFilters("how many low ones are left?").params, [
+    "Low",
+  ]);
+});
