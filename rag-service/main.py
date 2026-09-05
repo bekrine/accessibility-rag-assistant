@@ -1,5 +1,4 @@
 import os
-import re
 
 import chromadb
 from dotenv import load_dotenv
@@ -84,6 +83,9 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
+    severity: str | None = None
+    status: str | None = None
+    issueId: str | None = None
 
 
 class Issue(BaseModel):
@@ -146,73 +148,26 @@ def search(request: SearchRequest):
 
 
 # -----------------------------
-# detect filters 
+# build filter from explicit intent fields
 # -----------------------------
-def detect_filters(message: str):
-
-    message_lower = message.lower()
+def build_filter(severity: str | None, status: str | None, issue_id: str | None):
 
     conditions = []
 
+    if severity:
+        conditions.append({"severity": severity})
 
-    # Severity
+    if status:
+        conditions.append({"status": status})
 
-    if "high severity" in message_lower:
-        conditions.append({
-            "severity": "High"
-        })
-
-    elif "medium severity" in message_lower:
-        conditions.append({
-            "severity": "Medium"
-        })
-
-    elif "low severity" in message_lower:
-        conditions.append({
-            "severity": "Low"
-        })
-
-
-    # Status
-
-    if "in progress" in message_lower:
-        conditions.append({
-            "status": "In Progress"
-        })
-
-    elif "resolved" in message_lower:
-        conditions.append({
-            "status": "Resolved"
-        })
-
-    elif "open" in message_lower:
-        conditions.append({
-            "status": "Open"
-        })
-
-
-    # Issue ID
-
-    issue_match = re.search(
-        r"PN-\d+",
-        message,
-        re.IGNORECASE
-    )
-
-    if issue_match:
-
-        conditions.append({
-            "issue_id": issue_match.group(0).upper()
-        })
-
+    if issue_id:
+        conditions.append({"issue_id": issue_id.upper()})
 
     if len(conditions) == 0:
         return None
 
-
     if len(conditions) == 1:
         return conditions[0]
-
 
     return {
         "$and": conditions
@@ -234,11 +189,13 @@ def chat(request: ChatRequest):
 
 
     # --------------------------------
-    # 2. Detect structured filters
+    # 2. Build structured filter from the caller's already-extracted intent
     # --------------------------------
 
-    where_filter = detect_filters(
-        request.message
+    where_filter = build_filter(
+        request.severity,
+        request.status,
+        request.issueId,
     )
 
 

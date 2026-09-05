@@ -1,43 +1,29 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { isCountQuestion, detectCountFilters } = require("../src/services/countIntent");
+const { answerCountQuestion } = require("../src/services/countIntent");
 
-test("recognizes count-style questions", () => {
-  assert.equal(isCountQuestion("How many high severity issues are there?"), true);
-  assert.equal(isCountQuestion("What is the total number of open issues?"), true);
-  assert.equal(isCountQuestion("Give me a count of resolved issues"), true);
+// These exercise the live database (docker compose up) since the count
+// logic is a thin, deterministic wrapper around a real SQL query.
+
+test("counts all issues with no filters", async () => {
+  const result = await answerCountQuestion({ severity: null, status: null });
+
+  assert.match(result.answer, /^There (is|are) \d+ issues? in the knowledge base\.$/);
+  assert.deepEqual(result.sources, []);
 });
 
-test("does not treat ordinary questions as count questions", () => {
-  assert.equal(isCountQuestion("What is PN-1003 about?"), false);
-  assert.equal(isCountQuestion("Tell me about the color contrast issues"), false);
+test("counts issues filtered by severity", async () => {
+  const result = await answerCountQuestion({ severity: "High", status: null });
+
+  assert.match(result.answer, /matching High in the knowledge base\.$/);
 });
 
-test("extracts a severity filter", () => {
-  const { conditions, params } = detectCountFilters(
-    "how many high severity issues are open?"
-  );
+test("counts issues filtered by severity and status", async () => {
+  const result = await answerCountQuestion({
+    severity: "Medium",
+    status: "Open",
+  });
 
-  assert.deepEqual(params, ["High", "Open"]);
-  assert.equal(conditions.length, 2);
-});
-
-test("returns no filters for an unfiltered count question", () => {
-  const { conditions, params } = detectCountFilters("how many issues are there?");
-
-  assert.deepEqual(conditions, []);
-  assert.deepEqual(params, []);
-});
-
-test("extracts severity without the word 'severity' present", () => {
-  assert.deepEqual(detectCountFilters("how many medium issues are there?").params, [
-    "Medium",
-  ]);
-  assert.deepEqual(detectCountFilters("how many high issues do we have?").params, [
-    "High",
-  ]);
-  assert.deepEqual(detectCountFilters("how many low ones are left?").params, [
-    "Low",
-  ]);
+  assert.match(result.answer, /matching Medium and Open in the knowledge base\.$/);
 });

@@ -1,51 +1,28 @@
 const pool = require("../db");
 
-const COUNT_PATTERN = /how many|number of|count of|total number/i;
+function describeFilters(severity, status) {
+  const parts = [severity, status].filter(Boolean);
 
-function detectCountFilters(message) {
-  const lower = message.toLowerCase();
-  const conditions = [];
-  const params = [];
-
-  if (/\bhigh\b/.test(lower)) {
-    conditions.push(`severity = $${params.length + 1}`);
-    params.push("High");
-  } else if (/\bmedium\b/.test(lower)) {
-    conditions.push(`severity = $${params.length + 1}`);
-    params.push("Medium");
-  } else if (/\blow\b/.test(lower)) {
-    conditions.push(`severity = $${params.length + 1}`);
-    params.push("Low");
-  }
-
-  if (/\bin progress\b/.test(lower)) {
-    conditions.push(`status = $${params.length + 1}`);
-    params.push("In Progress");
-  } else if (/\bresolved\b/.test(lower)) {
-    conditions.push(`status = $${params.length + 1}`);
-    params.push("Resolved");
-  } else if (/\bopen\b/.test(lower)) {
-    conditions.push(`status = $${params.length + 1}`);
-    params.push("Open");
-  }
-
-  return { conditions, params };
-}
-
-function describeFilters(conditions, params) {
-  if (conditions.length === 0) {
+  if (parts.length === 0) {
     return "";
   }
 
-  return ` matching ${params.join(" and ")}`;
+  return ` matching ${parts.join(" and ")}`;
 }
 
-async function tryAnswerCountQuestion(message) {
-  if (!COUNT_PATTERN.test(message)) {
-    return null;
+async function answerCountQuestion({ severity, status }) {
+  const conditions = [];
+  const params = [];
+
+  if (severity) {
+    params.push(severity);
+    conditions.push(`severity = $${params.length}`);
   }
 
-  const { conditions, params } = detectCountFilters(message);
+  if (status) {
+    params.push(status);
+    conditions.push(`status = $${params.length}`);
+  }
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -56,7 +33,7 @@ async function tryAnswerCountQuestion(message) {
   );
 
   const count = Number(result.rows[0].count);
-  const description = describeFilters(conditions, params);
+  const description = describeFilters(severity, status);
 
   return {
     answer: `There ${count === 1 ? "is" : "are"} ${count} issue${
@@ -66,12 +43,6 @@ async function tryAnswerCountQuestion(message) {
   };
 }
 
-function isCountQuestion(message) {
-  return COUNT_PATTERN.test(message);
-}
-
 module.exports = {
-  tryAnswerCountQuestion,
-  isCountQuestion,
-  detectCountFilters,
+  answerCountQuestion,
 };
