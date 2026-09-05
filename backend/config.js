@@ -35,6 +35,12 @@ const config = {
       "http://localhost:8000",
   },
 
+  scanner: {
+    serviceUrl:
+      process.env.SCANNER_SERVICE_URL ||
+      "http://localhost:9000",
+  },
+
   security: {
     internalApiKey: process.env.INTERNAL_API_KEY,
   },

@@ -5,6 +5,7 @@ require("dotenv").config();
 const issuesRouter = require("./routes/issues");
 const chatRouter = require("./routes/chat");
 const queueRouter = require("./routes/queue");
+const scanRouter = require("./routes/scan");
 const config = require("../config");
 
 const app = express();
@@ -21,6 +22,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/issues", issuesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/queues", queueRouter);
+app.use("/api/scan", scanRouter);
 
 
 app.listen(config.server.port, () => {

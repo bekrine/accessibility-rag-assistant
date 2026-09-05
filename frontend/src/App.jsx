@@ -84,6 +84,8 @@ function App() {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [scanUrl, setScanUrl] = useState("");
+  const [scanning, setScanning] = useState(false);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -163,6 +165,63 @@ function App() {
     }
   };
 
+  const scanWebsite = async () => {
+    if (!scanUrl.trim() || scanning) {
+      return;
+    }
+
+    const targetUrl = scanUrl.trim();
+    setScanning(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: targetUrl }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Scan failed");
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            data.issuesFound > 0
+              ? `Scanned ${data.url} and found ${data.issuesFound} accessibility issue${
+                  data.issuesFound === 1 ? "" : "s"
+                }. Ask me about them below.`
+              : `Scanned ${data.url} — axe-core didn't find any automatically-detectable issues.`,
+          sources: data.issues.map((issue) => ({
+            issue_id: issue.id,
+            title: issue.title,
+            wcag: issue.wcag,
+            severity: issue.severity,
+            status: issue.status,
+            page: issue.page,
+          })),
+        },
+      ]);
+
+      setScanUrl("");
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Couldn't scan that URL: ${error.message}`,
+          isError: true,
+        },
+      ]);
+    } finally {
+      setScanning(false);
+    }
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -172,6 +231,29 @@ function App() {
           <p>Ask questions about accessibility issues in your app</p>
         </div>
       </header>
+
+      <div className="scan-bar">
+        <input
+          type="url"
+          value={scanUrl}
+          onChange={(event) => setScanUrl(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              scanWebsite();
+            }
+          }}
+          placeholder="Scan a website for accessibility issues (https://...)"
+          disabled={scanning}
+        />
+        <button
+          className="scan-button"
+          onClick={scanWebsite}
+          disabled={scanning || !scanUrl.trim()}
+        >
+          {scanning ? "Scanning..." : "Scan"}
+        </button>
+      </div>
 
       <div className="chat-scroll" ref={scrollRef}>
         {messages.length === 0 && !loading ? (

@@ -6,7 +6,7 @@ A full-stack Retrieval-Augmented Generation (RAG) system that answers questions 
 
 ## What this is
 
-Most RAG tutorials stop at "embed some docs, query a vector store, call an LLM." This project also wires that up to a real backing application: issues live in Postgres, get embedded into a vector store, and any update to an issue propagates to the knowledge base asynchronously through an event-driven pipeline — not a manual re-index step.
+Most RAG tutorials stop at "embed some docs, query a vector store, call an LLM." This project also wires that up to a real backing application: issues live in Postgres, get embedded into a vector store, and any update to an issue propagates to the knowledge base asynchronously through an event-driven pipeline — not a manual re-index step. Issues can also be generated automatically: point the built-in scanner at any URL and it runs a real accessibility audit (axe-core, the engine behind Chrome DevTools' own accessibility panel) against the live page, then feeds the findings into that same pipeline — scan a site, then ask the chat "what high severity issues did you find?"
 
 ## Architecture
 
@@ -42,12 +42,23 @@ flowchart TB
         Gen[Generation<br/>via Hugging Face Inference]
     end
 
+    subgraph scan [scanner - Node/Puppeteer]
+        Axe[axe-core audit]
+    end
+
     HF[[Hugging Face Inference API]]
+    Web[[Any website]]
 
     UI --> Static
     UI -- POST /api/chat --> Proxy
     Proxy --> ChatProxy
     ChatProxy -- proxies --> Gen
+
+    UI -- POST /api/scan --> Proxy
+    Proxy -- forwards --> API
+    API -- POST /scan --> Axe
+    Axe -- headless-browser audit --> Web
+    API -- upserts issue + outbox row --> PG
 
     API <--> PG
     API -- issue update writes outbox row --> PG
@@ -69,7 +80,9 @@ flowchart TB
 - Retrieval-augmented chat with conversation history and source citations
 - Keyword-based structured filtering (severity/status/issue ID) layered on top of semantic search
 - Async, event-driven knowledge base sync (not a cron job or manual trigger)
-- Internal-API-key auth on admin/mutation routes, public chat rate-limited instead of key-gated (no client-side secret theater)
+- Live website scanning: run a real axe-core accessibility audit against any URL and feed the results straight into the RAG pipeline
+- SSRF-guarded scanning (blocks scans of private/internal network addresses) and stricter rate limiting than chat, since a scan is a real headless-browser operation
+- Internal-API-key auth on admin/mutation routes, public chat/scan rate-limited instead of key-gated (no client-side secret theater)
 - Input validation (Zod) on write endpoints
 - Dockerized end-to-end, including a production compose file with no ports exposed except the reverse proxy
 
@@ -79,6 +92,7 @@ flowchart TB
 |---|---|
 | Frontend | React 19, Vite |
 | Backend | Node.js, Express, BullMQ |
+| Scanner | Node.js, Puppeteer, axe-core |
 | RAG service | Python, FastAPI, sentence-transformers, ChromaDB |
 | LLM | Hugging Face Inference API |
 | Data | PostgreSQL, Redis |

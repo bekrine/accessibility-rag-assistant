@@ -476,6 +476,7 @@ async def sync_issue(issue: Issue):
             metadatas=[{
                 "type": "issue",
                 "issue_id": issue.id,
+                "title": issue.title,
                 "wcag": issue.wcag,
                 "severity": issue.severity,
                 "status": issue.status,
