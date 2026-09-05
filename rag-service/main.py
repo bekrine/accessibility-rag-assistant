@@ -246,9 +246,12 @@ def chat(request: ChatRequest):
     # 3. Prepare ChromaDB query
     # --------------------------------
 
+    # A structured filter already narrows the candidate pool (by severity,
+    # status, or issue id), so it's safe and useful to return more matches
+    # in that case instead of capping at 5 like an open-ended semantic search.
     query_options = {
         "query_embeddings": [query_embedding],
-        "n_results": 5,
+        "n_results": 25 if where_filter else 5,
     }
 
 
@@ -424,7 +427,7 @@ in the retrieved knowledge.
             }
         ],
 
-        max_tokens=500,
+        max_tokens=1500,
     )
 
 

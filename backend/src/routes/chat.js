@@ -1,6 +1,7 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const config = require("../../config");
+const { tryAnswerCountQuestion } = require("../services/countIntent");
 
 const router = express.Router();
 
@@ -22,6 +23,12 @@ router.post("/", chatLimiter, async (req, res) => {
       return res.status(400).json({
         message: "Message is required",
       });
+    }
+
+    const countAnswer = await tryAnswerCountQuestion(message);
+
+    if (countAnswer) {
+      return res.json(countAnswer);
     }
 
     const ragResponse = await fetch(
