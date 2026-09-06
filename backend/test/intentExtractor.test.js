@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   extractIntent,
   normalizeExtracted,
+  buildUserContent,
   FALLBACK_INTENT,
 } = require("../src/services/intentExtractor");
 
@@ -79,4 +80,38 @@ test("falls back to default when the HTTP call itself fails", async (t) => {
   const result = await extractIntent("anything");
 
   assert.deepEqual(result, FALLBACK_INTENT);
+});
+
+test("buildUserContent passes the message through unchanged with no history", () => {
+  assert.equal(buildUserContent("hello", []), "hello");
+  assert.equal(buildUserContent("hello", undefined), "hello");
+});
+
+test("buildUserContent includes recent history for reference resolution", () => {
+  const history = [
+    { role: "user", content: "how many low issues are there?" },
+    { role: "assistant", content: "There is 1 issue matching Low." },
+  ];
+
+  const content = buildUserContent("show me that issue", history);
+
+  assert.match(content, /CONVERSATION HISTORY:/);
+  assert.match(content, /user: how many low issues are there\?/);
+  assert.match(content, /CURRENT MESSAGE:\nshow me that issue/);
+});
+
+test("resolves a filter carried over from the previous turn", async (t) => {
+  mockChatCompletion(
+    t,
+    '{"intent":"search","severity":"Low","status":null,"issueId":null}'
+  );
+
+  const history = [
+    { role: "user", content: "how many low issues are there?" },
+    { role: "assistant", content: "There is 1 issue matching Low." },
+  ];
+
+  const result = await extractIntent("show me that issue", history);
+
+  assert.equal(result.severity, "Low");
 });

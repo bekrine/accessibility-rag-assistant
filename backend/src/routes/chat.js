@@ -26,7 +26,7 @@ router.post("/", chatLimiter, async (req, res) => {
       });
     }
 
-    const intent = await extractIntent(message);
+    const intent = await extractIntent(message, history || []);
 
     if (intent.intent === "count") {
       const countAnswer = await answerCountQuestion({
