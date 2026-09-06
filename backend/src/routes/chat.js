@@ -2,6 +2,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const config = require("../../config");
 const { answerCountQuestion } = require("../services/countIntent");
+const { answerTopicCountQuestion } = require("../services/topicCount");
 const { extractIntent } = require("../services/intentExtractor");
 
 const router = express.Router();
@@ -29,10 +30,17 @@ router.post("/", chatLimiter, async (req, res) => {
     const intent = await extractIntent(message, history || []);
 
     if (intent.intent === "count") {
-      const countAnswer = await answerCountQuestion({
-        severity: intent.severity,
-        status: intent.status,
-      });
+      const countAnswer = intent.topic
+        ? await answerTopicCountQuestion({
+            topic: intent.topic,
+            severity: intent.severity,
+            status: intent.status,
+            issueId: intent.issueId,
+          })
+        : await answerCountQuestion({
+            severity: intent.severity,
+            status: intent.status,
+          });
 
       return res.json(countAnswer);
     }

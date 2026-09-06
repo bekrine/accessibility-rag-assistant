@@ -78,7 +78,7 @@ flowchart TB
 ## Features
 
 - Retrieval-augmented chat with conversation history and source citations
-- Keyword-based structured filtering (severity/status/issue ID) layered on top of semantic search
+- LLM-based intent understanding (not keyword matching) — resolves natural phrasing, conversational follow-ups ("show me that issue"), and topic-based counting ("how many issues about images") into exact, deterministic answers (a real Postgres `COUNT` or a real Chroma filter)
 - Async, event-driven knowledge base sync (not a cron job or manual trigger)
 - Live website scanning: run a real axe-core accessibility audit against any URL and feed the results straight into the RAG pipeline
 - SSRF-guarded scanning (blocks scans of private/internal network addresses) and stricter rate limiting than chat, since a scan is a real headless-browser operation

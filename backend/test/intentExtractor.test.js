@@ -20,7 +20,7 @@ function mockChatCompletion(t, content) {
 test("parses a valid intent JSON response", async (t) => {
   mockChatCompletion(
     t,
-    '{"intent":"count","severity":"High","status":null,"issueId":null}'
+    '{"intent":"count","severity":"High","status":null,"issueId":null,"topic":null}'
   );
 
   const result = await extractIntent("how many high issues are left");
@@ -30,13 +30,14 @@ test("parses a valid intent JSON response", async (t) => {
     severity: "High",
     status: null,
     issueId: null,
+    topic: null,
   });
 });
 
 test("extracts JSON even if the model wraps it in extra text", async (t) => {
   mockChatCompletion(
     t,
-    'Sure, here you go:\n{"intent":"search","severity":null,"status":"Open","issueId":null}\nHope that helps!'
+    'Sure, here you go:\n{"intent":"search","severity":null,"status":"Open","issueId":null,"topic":null}\nHope that helps!'
   );
 
   const result = await extractIntent("what's still open");
@@ -103,7 +104,7 @@ test("buildUserContent includes recent history for reference resolution", () => 
 test("resolves a filter carried over from the previous turn", async (t) => {
   mockChatCompletion(
     t,
-    '{"intent":"search","severity":"Low","status":null,"issueId":null}'
+    '{"intent":"search","severity":"Low","status":null,"issueId":null,"topic":null}'
   );
 
   const history = [
@@ -114,4 +115,59 @@ test("resolves a filter carried over from the previous turn", async (t) => {
   const result = await extractIntent("show me that issue", history);
 
   assert.equal(result.severity, "Low");
+});
+
+test("extracts a topic for a topical question", async (t) => {
+  mockChatCompletion(
+    t,
+    '{"intent":"count","severity":null,"status":null,"issueId":null,"topic":"images"}'
+  );
+
+  const result = await extractIntent("how many issues about images are there");
+
+  assert.equal(result.intent, "count");
+  assert.equal(result.topic, "images");
+  assert.equal(result.severity, null);
+});
+
+test("normalizeExtracted trims topic and nulls out an empty string", () => {
+  assert.equal(
+    normalizeExtracted({ intent: "search", topic: "  images  " }).topic,
+    "images"
+  );
+  assert.equal(
+    normalizeExtracted({ intent: "search", topic: "" }).topic,
+    null
+  );
+  assert.equal(
+    normalizeExtracted({ intent: "search", topic: 42 }).topic,
+    null
+  );
+});
+
+// This documents the intended behavior for the regression this test suite
+// caught live: a fresh, unrelated question later in the same conversation
+// should NOT inherit a filter from an earlier, unrelated turn. The model's
+// actual judgment call can only be verified against the live API (see the
+// manual verification steps run alongside this change), but this pins down
+// that normalizeExtracted correctly reflects whatever the model decides
+// on a case where it should classify independently of a prior filter.
+test("an unrelated new topic is not forced to inherit a prior filter", async (t) => {
+  mockChatCompletion(
+    t,
+    '{"intent":"count","severity":null,"status":null,"issueId":null,"topic":"images"}'
+  );
+
+  const history = [
+    { role: "user", content: "how many high severity issues are there?" },
+    { role: "assistant", content: "There are 33 issues matching High." },
+  ];
+
+  const result = await extractIntent(
+    "how many issues about images are there",
+    history
+  );
+
+  assert.equal(result.severity, null);
+  assert.equal(result.topic, "images");
 });

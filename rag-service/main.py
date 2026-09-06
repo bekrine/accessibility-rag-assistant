@@ -48,6 +48,13 @@ def get_collection():
         name="nexus_knowledge"
     )
 
+# Chroma L2 distance cutoff for "is this actually relevant" filtering on
+# unfiltered semantic search. Calibrated against this embedding model
+# (all-MiniLM-L6-v2): genuinely relevant matches land around 1.5, unrelated
+# queries land around 1.8+ - a bare "1.0" (unvalidated guess in the original
+# code) rejected even perfect topical matches.
+RELEVANCE_DISTANCE_THRESHOLD = 1.6
+
 # -----------------------------
 # Hugging Face
 # -----------------------------
@@ -83,6 +90,13 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
+    severity: str | None = None
+    status: str | None = None
+    issueId: str | None = None
+
+
+class CountRequest(BaseModel):
+    topic: str
     severity: str | None = None
     status: str | None = None
     issueId: str | None = None
@@ -252,7 +266,7 @@ def chat(request: ChatRequest):
                 distances,
             )
 
-            if distance <= 1.0
+            if distance <= RELEVANCE_DISTANCE_THRESHOLD
         ]
 
         documents = [
@@ -403,8 +417,86 @@ in the retrieved knowledge.
         "answer": answer,
         "sources": sources,
     }
-    
-    
+
+
+# -----------------------------
+# Topic-aware count
+# -----------------------------
+
+@app.post("/count")
+def count(request: CountRequest):
+
+    # 1. Embed the topic
+
+    query_embedding = model.encode(
+        request.topic
+    ).tolist()
+
+
+    # 2. Build a structured filter, same as /chat
+
+    where_filter = build_filter(
+        request.severity,
+        request.status,
+        request.issueId,
+    )
+
+
+    # 3. Query the full collection so we can count every match,
+    #    not just a top-k window like /chat uses
+
+    collection = get_collection()
+
+    query_options = {
+        "query_embeddings": [query_embedding],
+        "n_results": max(collection.count(), 1),
+    }
+
+    if where_filter:
+        query_options["where"] = where_filter
+
+    results = collection.query(
+        **query_options
+    )
+
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = results["distances"][0]
+
+
+    # 4. Without a structured filter, only count matches that are
+    #    actually relevant to the topic (same threshold /chat uses)
+
+    if where_filter:
+        matches = list(metadatas)
+    else:
+        matches = [
+            metadata
+            for metadata, distance in zip(metadatas, distances)
+            if distance <= RELEVANCE_DISTANCE_THRESHOLD
+        ]
+
+
+    # 5. A few example sources for the answer to cite
+
+    sources = []
+
+    for metadata in matches[:5]:
+        sources.append({
+            "issue_id": metadata.get("issue_id"),
+            "title": metadata.get("title"),
+            "wcag": metadata.get("wcag"),
+            "severity": metadata.get("severity"),
+            "status": metadata.get("status"),
+            "page": metadata.get("page"),
+            "url": metadata.get("url"),
+        })
+
+    return {
+        "count": len(matches),
+        "sources": sources,
+    }
+
 
 @app.post("/sync/issue", dependencies=[Depends(require_internal_key)])
 async def sync_issue(issue: Issue):
