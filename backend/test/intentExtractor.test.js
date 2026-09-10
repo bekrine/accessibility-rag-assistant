@@ -20,7 +20,7 @@ function mockChatCompletion(t, content) {
 test("parses a valid intent JSON response", async (t) => {
   mockChatCompletion(
     t,
-    '{"intent":"count","severity":"High","status":null,"issueId":null,"topic":null}'
+    '{"intent":"count","severity":"High","status":null,"issueId":null,"topic":null,"scope":null}'
   );
 
   const result = await extractIntent("how many high issues are left");
@@ -31,6 +31,7 @@ test("parses a valid intent JSON response", async (t) => {
     status: null,
     issueId: null,
     topic: null,
+    scope: null,
   });
 });
 
@@ -128,6 +129,41 @@ test("extracts a topic for a topical question", async (t) => {
   assert.equal(result.intent, "count");
   assert.equal(result.topic, "images");
   assert.equal(result.severity, null);
+});
+
+test("extracts scope for a reference to a just-found result set", async (t) => {
+  mockChatCompletion(
+    t,
+    '{"intent":"count","severity":"High","status":null,"issueId":null,"topic":null,"scope":"last_results"}'
+  );
+
+  const history = [
+    { role: "user", content: "[scanned a website]" },
+    {
+      role: "assistant",
+      content: "Scanned https://example.com and found 2 accessibility issues.",
+    },
+  ];
+
+  const result = await extractIntent("how many of them are high", history);
+
+  assert.equal(result.scope, "last_results");
+  assert.equal(result.severity, "High");
+});
+
+test("normalizeExtracted only accepts 'last_results' as a valid scope", () => {
+  assert.equal(
+    normalizeExtracted({ intent: "search", scope: "last_results" }).scope,
+    "last_results"
+  );
+  assert.equal(
+    normalizeExtracted({ intent: "search", scope: "everything" }).scope,
+    null
+  );
+  assert.equal(
+    normalizeExtracted({ intent: "search" }).scope,
+    null
+  );
 });
 
 test("normalizeExtracted trims topic and nulls out an empty string", () => {

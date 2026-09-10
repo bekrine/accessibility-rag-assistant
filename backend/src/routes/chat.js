@@ -4,6 +4,11 @@ const config = require("../../config");
 const { answerCountQuestion } = require("../services/countIntent");
 const { answerTopicCountQuestion } = require("../services/topicCount");
 const { extractIntent } = require("../services/intentExtractor");
+const {
+  getLastResults,
+  answerScopedCount,
+  answerScopedSearch,
+} = require("../services/scopedResults");
 
 const router = express.Router();
 
@@ -28,6 +33,24 @@ router.post("/", chatLimiter, async (req, res) => {
     }
 
     const intent = await extractIntent(message, history || []);
+
+    const lastResults = getLastResults(history || []);
+    const isScoped = intent.scope === "last_results" && lastResults.length > 0;
+
+    if (isScoped) {
+      const scopedAnswer =
+        intent.intent === "count"
+          ? answerScopedCount(lastResults, {
+              severity: intent.severity,
+              status: intent.status,
+            })
+          : answerScopedSearch(lastResults, {
+              severity: intent.severity,
+              status: intent.status,
+            });
+
+      return res.json(scopedAnswer);
+    }
 
     if (intent.intent === "count") {
       const countAnswer = intent.topic

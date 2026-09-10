@@ -7,6 +7,7 @@ const FALLBACK_INTENT = {
   status: null,
   issueId: null,
   topic: null,
+  scope: null,
 };
 
 const SYSTEM_PROMPT = `You are an intent classifier for an accessibility issue tracker chatbot.
@@ -19,26 +20,32 @@ Reply with ONLY a JSON object (no other text, no markdown fences) describing the
 - "status": one of "Open", "In Progress", "Resolved", or null
 - "issueId": a specific issue id like "PN-1234" if one is mentioned, or null
 - "topic": a short phrase describing what the question is about (e.g. "images", "color contrast", "buttons"), or null if the question isn't about a specific topic
+- "scope": "last_results" if the message refers to a SET of issues just shown (e.g. "them", "those", "the ones you found", "of these", right after a scan or a list of results) — otherwise null. This is different from "issueId", which is for a reference to one SPECIFIC issue (e.g. "that issue", "it" referring to a single item).
 
 IMPORTANT — when to use history vs. classify independently:
-Only pull a filter or topic from history when the CURRENT message is a genuine reference to the previous turn — it uses a pronoun or vague reference ("that issue", "it", "those", "show me it") and would not make sense on its own. If the current message introduces its OWN topic or criteria, classify it entirely on its own merits and ignore unrelated filters from earlier turns, even if the conversation is continuing. A new question is not automatically a follow-up just because it comes later in the same conversation.
+Only pull a filter, topic, or scope from history when the CURRENT message is a genuine reference to the previous turn — it uses a pronoun or vague reference and would not make sense on its own. If the current message introduces its OWN topic or criteria, classify it entirely on its own merits and ignore unrelated filters from earlier turns, even if the conversation is continuing. A new question is not automatically a follow-up just because it comes later in the same conversation.
 
 Examples:
-"how many high issues are left" -> {"intent":"count","severity":"High","status":null,"issueId":null,"topic":null}
-"what's still in progress" -> {"intent":"search","severity":null,"status":"In Progress","issueId":null,"topic":null}
-"tell me about pn-1003" -> {"intent":"search","severity":null,"status":null,"issueId":"PN-1003","topic":null}
-"how many issues about images are there" -> {"intent":"count","severity":null,"status":null,"issueId":null,"topic":"images"}
-"hi" -> {"intent":"search","severity":null,"status":null,"issueId":null,"topic":null}
+"how many high issues are left" -> {"intent":"count","severity":"High","status":null,"issueId":null,"topic":null,"scope":null}
+"what's still in progress" -> {"intent":"search","severity":null,"status":"In Progress","issueId":null,"topic":null,"scope":null}
+"tell me about pn-1003" -> {"intent":"search","severity":null,"status":null,"issueId":"PN-1003","topic":null,"scope":null}
+"how many issues about images are there" -> {"intent":"count","severity":null,"status":null,"issueId":null,"topic":"images","scope":null}
+"hi" -> {"intent":"search","severity":null,"status":null,"issueId":null,"topic":null,"scope":null}
 
-History example (genuine reference, carry the filter over):
+History example (reference to ONE issue — use issueId, not scope):
 user: how many low severity issues are there?
 assistant: There is 1 issue matching Low in the knowledge base.
-Current message: "show me that issue" -> {"intent":"search","severity":"Low","status":null,"issueId":null,"topic":null}
+Current message: "show me that issue" -> {"intent":"search","severity":"Low","status":null,"issueId":null,"topic":null,"scope":null}
 
-History example (NOT a reference — a new, independent question; do NOT carry the old filter over):
+History example (reference to a SET of just-found results — use scope, not a global filter):
+user: [scanned a website]
+assistant: Scanned https://example.com and found 2 accessibility issues. Ask me about them below.
+Current message: "how many of them are high" -> {"intent":"count","severity":"High","status":null,"issueId":null,"topic":null,"scope":"last_results"}
+
+History example (NOT a reference — a new, independent question; do NOT carry the old filter or scope over):
 user: how many high severity issues are there?
 assistant: There are 33 issues matching High in the knowledge base.
-Current message: "how many issues about images are there" -> {"intent":"count","severity":null,"status":null,"issueId":null,"topic":"images"}`;
+Current message: "how many issues about images are there" -> {"intent":"count","severity":null,"status":null,"issueId":null,"topic":"images","scope":null}`;
 
 function buildUserContent(message, history) {
   if (!history || history.length === 0) {
@@ -75,6 +82,7 @@ function normalizeExtracted(parsed) {
     status: VALID_STATUSES.includes(parsed.status) ? parsed.status : null,
     issueId: typeof parsed.issueId === "string" ? parsed.issueId : null,
     topic: normalizeTopic(parsed.topic),
+    scope: parsed.scope === "last_results" ? "last_results" : null,
   };
 }
 

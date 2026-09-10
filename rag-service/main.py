@@ -102,6 +102,10 @@ class CountRequest(BaseModel):
     issueId: str | None = None
 
 
+class DeleteIssuesRequest(BaseModel):
+    issueIds: list[str]
+
+
 class Issue(BaseModel):
     id: str
     title: str
@@ -540,6 +544,27 @@ async def sync_issue(issue: Issue):
         return {
             "success": True,
             "message": f"Issue {issue.id} synchronized successfully"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+@app.post("/sync/issues/delete", dependencies=[Depends(require_internal_key)])
+def delete_issues(request: DeleteIssuesRequest):
+    if not request.issueIds:
+        return {"success": True, "deleted": 0}
+
+    try:
+        collection = get_collection()
+        collection.delete(ids=request.issueIds)
+
+        return {
+            "success": True,
+            "deleted": len(request.issueIds),
         }
 
     except Exception as e:
